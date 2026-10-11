@@ -2,15 +2,17 @@
 # EDC プラグイン(entertainment-design-catalog)のインストーラ(macOS / Linux)
 #   curl -fsSL https://github.com/Shinh0707/edc-agent-plugin/releases/latest/download/install.sh | sh
 # 入れる場所:
-#   Antigravity(IDE / 2.0)  ~/.gemini/config/plugins/entertainment-design-catalog   (常に)
-#   Antigravity CLI         agy plugin install で ~/.gemini/antigravity-cli/plugins/  (agy があるとき)
-# オプション(sh -s -- <オプション>): --dir <パス> 入れる場所を変える / --no-cli CLI には入れない / --no-login ログインを聞かない
+#   ~/.gemini/config/plugins/entertainment-design-catalog(Antigravity の IDE / 2.0 / CLI で共通)
+#   agy(Antigravity CLI)があれば、展開した一時フォルダから agy plugin install で入れ、CLI にも登録する。
+#   agy plugin install は上の場所へ複写するので、入れた先のフォルダを渡してはいけない(自分自身への複写で中身が空になる)
+# オプション(sh -s -- <オプション>): --dir <パス> 入れる場所を変える(agy は使わない) / --no-cli agy を使わない / --no-login ログインを聞かない
 #   環境変数 EDC_PLUGIN_VERSION=v1.2.0 で版を指定(既定は最新)。EDC_PLUGIN_BASE_URL でダウンロード元を変える(確かめ用)
 set -eu
 
 REPO="Shinh0707/edc-agent-plugin"
 NAME="entertainment-design-catalog"
-DEST="${HOME}/.gemini/config/plugins/${NAME}"
+DEFAULT_DEST="${HOME}/.gemini/config/plugins/${NAME}"
+DEST="$DEFAULT_DEST"
 CLI=auto
 LOGIN=ask
 while [ $# -gt 0 ]; do
@@ -49,15 +51,38 @@ unzip -q "$TMP/${NAME}.zip" -d "$TMP/x"
 VERSION=$(node -p "require('$TMP/x/${NAME}/plugin.json').version")
 
 # 利用者が置いた .env は引き継ぐ(ログイン情報は ~/.config/edc/ にあり、プラグインのフォルダには置かない)
-if [ -f "$DEST/.env" ]; then cp -p "$DEST/.env" "$TMP/x/${NAME}/.env"; fi
+STAGE="$TMP/x/${NAME}"
+if [ -s "$DEST/.env" ]; then cp -p "$DEST/.env" "$STAGE/.env"; fi
 mkdir -p "$(dirname "$DEST")"
-if [ -e "$DEST" ]; then mv "$DEST" "$TMP/old"; fi
-mv "$TMP/x/${NAME}" "$DEST"
-say "v${VERSION} を入れました: $DEST"
+if [ -e "$DEST" ]; then cp -Rp "$DEST" "$TMP/old"; fi
 
-if [ "$CLI" != no ] && command -v agy >/dev/null 2>&1; then
-  if agy plugin install "$DEST" >/dev/null 2>&1; then say "Antigravity CLI にも入れました(agy plugin install)"
-  else say "Antigravity CLI への登録に失敗しました。あとで: agy plugin install \"$DEST\""; fi
+# 中身が空のファイルがあれば失敗とみなし、前の版に戻す
+verify() {
+  for f in plugin.json mcp_config.json mcp/launcher.mjs mcp/defaults.json mcp/dist/index.mjs skills/edc-analysis/SKILL.md; do
+    [ -s "$DEST/$f" ] || return 1
+  done
+}
+rollback() {
+  rm -rf "$DEST"
+  if [ -e "$TMP/old" ]; then mv "$TMP/old" "$DEST"; say "前の版に戻しました"; fi
+  die "$1"
+}
+
+if [ "$CLI" != no ] && [ "$DEST" = "$DEFAULT_DEST" ] && command -v agy >/dev/null 2>&1; then
+  # agy は STAGE を DEST へ複写し、CLI にも登録する(DEST を渡さない)
+  if agy plugin install "$STAGE" >"$TMP/agy.log" 2>&1 && verify; then
+    say "v${VERSION} を入れました: $DEST(Antigravity CLI にも登録)"
+  else
+    say "agy plugin install がうまくいかなかったので、直接置きます(ログ: agy plugin install の出力は下)"
+    sed 's/^/    /' "$TMP/agy.log" >&2 || true
+    rm -rf "$DEST" && cp -Rp "$STAGE" "$DEST"
+    verify || rollback "入れたファイルが壊れています"
+    say "v${VERSION} を入れました: $DEST"
+  fi
+else
+  rm -rf "$DEST" && cp -Rp "$STAGE" "$DEST"
+  verify || rollback "入れたファイルが壊れています"
+  say "v${VERSION} を入れました: $DEST"
 fi
 
 if [ "$LOGIN" = ask ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then

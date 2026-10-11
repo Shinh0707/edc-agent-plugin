@@ -1,6 +1,6 @@
 {
   "name": "@entertainment-design-catalog/mcp-server",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "description": "MCP Server wrapper for Entertainment Design Catalog (EDC) API",
   "main": "dist/index.mjs",

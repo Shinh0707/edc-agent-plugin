@@ -22,9 +22,9 @@ irm https://github.com/Shinh0707/edc-agent-plugin/releases/latest/download/insta
 
 | エージェント | 場所 |
 | :-- | :-- |
-| Antigravity（IDE / 2.0、すべてのワークスペース） | `~/.gemini/config/plugins/entertainment-design-catalog/`（Windows: `%USERPROFILE%\.gemini\config\plugins\entertainment-design-catalog\`） |
+| Antigravity（IDE / 2.0 / CLI、すべてのワークスペース） | `~/.gemini/config/plugins/entertainment-design-catalog/`（Windows: `%USERPROFILE%\.gemini\config\plugins\entertainment-design-catalog\`） |
 | Antigravity（1つのワークスペースだけ） | `<ワークスペース>/.agents/plugins/entertainment-design-catalog/` |
-| Antigravity CLI（`agy`） | 上のフォルダを `agy plugin install <フォルダ>` で登録（`~/.gemini/antigravity-cli/plugins/` に入る。インストーラは `agy` があれば自動で行う） |
+| Antigravity CLI（`agy`） | 同じ `~/.gemini/config/plugins/entertainment-design-catalog/`。インストーラは `agy` があれば `agy plugin install` で CLI にも登録する。手で登録するときは、**入れた先ではなく展開した一時フォルダ**を渡す（`agy plugin install` はこの場所へ複写するので、入れた先を渡すと自分自身への複写で中身が空になる。agy 1.1.5 で確認） |
 
 ### 手で入れる
 

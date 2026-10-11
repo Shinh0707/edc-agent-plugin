@@ -25,7 +25,7 @@ Install with one command (macOS / Linux), then follow the prompts to register an
 curl -fsSL https://github.com/Shinh0707/edc-agent-plugin/releases/latest/download/install.sh | sh
 ```
 
-Windows: `irm https://github.com/Shinh0707/edc-agent-plugin/releases/latest/download/install.ps1 | iex`. It installs to `~/.gemini/config/plugins/entertainment-design-catalog/` (Antigravity IDE / 2.0) and, if `agy` is present, registers it with the Antigravity CLI. Details and manual install: [`SETUP.md`](SETUP.md).
+Windows: `irm https://github.com/Shinh0707/edc-agent-plugin/releases/latest/download/install.ps1 | iex`. It installs to `~/.gemini/config/plugins/entertainment-design-catalog/` (shared by Antigravity IDE / 2.0 / CLI) and, if `agy` is present, also registers it with the Antigravity CLI. Details and manual install: [`SETUP.md`](SETUP.md).
 
 Manually: install Node.js, register yourself with Google at https://entertainment-design-catalog.web.app/register (`node mcp/launcher.mjs register` opens it), then run once with the same account:
 
