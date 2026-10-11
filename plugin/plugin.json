@@ -1,0 +1,12 @@
+{
+  "name": "entertainment-design-catalog",
+  "displayName": "Entertainment Design Catalog (EDC)",
+  "version": "1.2.0",
+  "description": "Analyze experiential texts to extract Entertainment Design Tags (EDC), inspect cognitive/perceptual emotional effects, and manage design tags using the EDC Web API.",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Analyze this game scene and extract EDC design tags",
+    "Inspect the perceptual and cognitive effects from the latest EDC analysis",
+    "Retrieve the stored EDC analysis by ID"
+  ]
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+plugin/mcp/dist/
+plugin/.env
+.env
+auth.json
+.DS_Store
+tools.jsonl

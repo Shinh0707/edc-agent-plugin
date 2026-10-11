@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "entertainment-design-catalog": {
+      "command": "node",
+      "type": "stdio",
+      "args": [
+        "mcp/launcher.mjs"
+      ]
+    }
+  }
+}

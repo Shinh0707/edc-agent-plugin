@@ -1,0 +1,39 @@
+name: release
+# v で始まるタグ(例: v1.2.0)を push すると、zip を作って GitHub Releases に出す。
+# タグは plugin/plugin.json の version と同じにする(違えば失敗する)。
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: plugin/mcp/package-lock.json
+      - name: MCP サーバーをビルド
+        working-directory: plugin/mcp
+        run: npm ci && npm run build
+      - name: zip を作る
+        env:
+          # デスクトップアプリの OAuth クライアントのシークレット(Google の定義上は秘密でない。リポジトリには置かない)
+          EDC_OAUTH_CLIENT_SECRET: ${{ secrets.EDC_OAUTH_CLIENT_SECRET }}
+        run: node scripts/package.mjs --tag "${GITHUB_REF_NAME}"
+      - name: zip に秘密のファイルが入っていない
+        run: "! unzip -l dist/entertainment-design-catalog.zip | grep -E '(^|/)(\\.env|auth\\.json)$|node_modules/'"
+      - name: リリースを作る
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/entertainment-design-catalog.zip \
+            dist/entertainment-design-catalog.zip.sha256 \
+            install/install.sh \
+            install/install.ps1 \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes

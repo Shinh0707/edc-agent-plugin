@@ -1,0 +1,21 @@
+{
+  "name": "@entertainment-design-catalog/mcp-server",
+  "version": "1.2.0",
+  "type": "module",
+  "description": "MCP Server wrapper for Entertainment Design Catalog (EDC) API",
+  "main": "dist/index.mjs",
+  "scripts": {
+    "build": "esbuild src/server.ts --bundle --platform=node --target=node22 --format=esm --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --outfile=dist/index.mjs",
+    "start": "node dist/index.mjs"
+  },
+  "dependencies": {
+    "@entertainment-design-catalog/design-tags": "^0.2.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "google-auth-library": "^9.15.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,40 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: plugin/mcp/package-lock.json
+      - name: MCP サーバーをビルド
+        working-directory: plugin/mcp
+        run: npm ci && npm run build
+      - name: 構文の確認
+        run: |
+          node --check plugin/mcp/launcher.mjs
+          node --check plugin/mcp/dist/index.mjs
+          sh -n install/install.sh
+      - name: MCP サーバーが起動し、4つのツールを出す
+        working-directory: plugin
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | (cat; sleep 5) | timeout 15 node mcp/launcher.mjs > tools.jsonl || true
+          node -e 'const l=require("fs").readFileSync("tools.jsonl","utf8").trim().split("\n").map(JSON.parse).find(m=>m.id===2); const n=l.result.tools.map(t=>t.name).sort(); console.log(n); if(n.length!==4) process.exit(1)'
+      - name: zip を作れる(シークレットなし)
+        run: node scripts/package.mjs --allow-missing-secret
+      - name: zip に秘密のファイルが入っていない
+        run: |
+          unzip -l dist/entertainment-design-catalog.zip
+          ! unzip -l dist/entertainment-design-catalog.zip | grep -E '(^|/)(\.env|auth\.json)$|node_modules/'
