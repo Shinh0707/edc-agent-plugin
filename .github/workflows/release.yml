@@ -19,13 +19,13 @@ jobs:
       - name: MCP サーバーをビルド
         working-directory: plugin/mcp
         run: npm ci && npm run build
+      - name: テスト
+        working-directory: plugin/mcp
+        run: npm test
       - name: zip を作る
-        env:
-          # デスクトップアプリの OAuth クライアントのシークレット(Google の定義上は秘密でない。リポジトリには置かない)
-          EDC_OAUTH_CLIENT_SECRET: ${{ secrets.EDC_OAUTH_CLIENT_SECRET }}
         run: node scripts/package.mjs --tag "${GITHUB_REF_NAME}"
       - name: zip に秘密のファイルが入っていない
-        run: "! unzip -l dist/entertainment-design-catalog.zip | grep -E '(^|/)(\\.env|auth\\.json)$|node_modules/'"
+        run: "! unzip -l dist/entertainment-design-catalog.zip | grep -E '(^|/)(\\.env|auth\\.json|token\\.json)$|node_modules/|/test/'"
       - name: リリースを作る
         env:
           GH_TOKEN: ${{ github.token }}

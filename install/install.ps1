@@ -4,7 +4,7 @@
 #   %USERPROFILE%\.gemini\config\plugins\entertainment-design-catalog(Antigravity の IDE / 2.0 / CLI で共通)
 #   agy(Antigravity CLI)があれば、展開した一時フォルダから agy plugin install で入れ、CLI にも登録する。
 #   agy plugin install は上の場所へ複写するので、入れた先のフォルダを渡してはいけない(自分自身への複写で中身が空になる)
-# 環境変数: EDC_PLUGIN_VERSION=v1.2.0(既定は最新)、EDC_PLUGIN_BASE_URL(ダウンロード元。確かめ用)、EDC_PLUGIN_DIR(入れる場所)、EDC_NO_CLI=1、EDC_NO_LOGIN=1
+# 環境変数: EDC_PLUGIN_VERSION=v2.0.0(既定は最新)、EDC_PLUGIN_BASE_URL(ダウンロード元。確かめ用)、EDC_PLUGIN_DIR(入れる場所)、EDC_NO_CLI=1、EDC_NO_LOGIN=1
 $ErrorActionPreference = "Stop"
 
 $Repo = "Shinh0707/edc-agent-plugin"
@@ -34,15 +34,14 @@ try {
   if (-not (Test-Path "$tmp\x\$Name\plugin.json")) { throw "zip の中身が想定と違います" }
   $pluginVersion = (Get-Content "$tmp\x\$Name\plugin.json" -Raw | ConvertFrom-Json).version
 
-  # 利用者が置いた .env は引き継ぐ
+  # ログイン情報は OS の鍵束(または ~/.config/edc/)にあり、プラグインのフォルダには置かない
   $stage = "$tmp\x\$Name"
-  if ((Test-Path "$Dest\.env") -and (Get-Item "$Dest\.env").Length -gt 0) { Copy-Item "$Dest\.env" "$stage\.env" }
   New-Item -ItemType Directory -Force (Split-Path $Dest) | Out-Null
   if (Test-Path $Dest) { Copy-Item -Recurse $Dest "$tmp\old" }
 
   # 中身が空のファイルがあれば失敗とみなし、前の版に戻す
   function Test-Installed {
-    foreach ($f in @("plugin.json", "mcp_config.json", "mcp\launcher.mjs", "mcp\defaults.json", "mcp\dist\index.mjs", "skills\edc-analysis\SKILL.md")) {
+    foreach ($f in @("plugin.json", "mcp_config.json", "mcp\launcher.mjs", "mcp\edc-auth.mjs", "mcp\token-store.mjs", "mcp\dist\index.mjs", "skills\edc-analysis\SKILL.md")) {
       $p = Join-Path $Dest $f
       if (-not (Test-Path $p) -or (Get-Item $p).Length -eq 0) { return $false }
     }
@@ -73,13 +72,11 @@ try {
   }
 
   if (-not $env:EDC_NO_LOGIN) {
-    $answer = Read-Host "[edc] 続けて利用登録とログインをしますか? [Y/n]"
+    $answer = Read-Host "[edc] 続けて EDC アカウントにログインしますか(未登録なら、その画面で登録できます)? [Y/n]"
     if ($answer -notmatch '^(n|no)$') {
       Push-Location $Dest
       try {
-        if ((node mcp/launcher.mjs status | Out-String) -match '"authMode": "none"') {
-          node mcp/launcher.mjs register
-          Read-Host "[edc] ブラウザで「Google でログイン」を押し、「登録しました」と出たら Enter" | Out-Null
+        if ((node mcp/launcher.mjs status | Out-String) -match '"signedIn": false') {
           node mcp/launcher.mjs login
         } else {
           node mcp/launcher.mjs check
@@ -92,6 +89,5 @@ try {
 }
 
 Say "次に:"
-Write-Host "  1. (まだなら)利用登録: https://entertainment-design-catalog.web.app/register"
-Write-Host "  2. (まだなら)ログイン: cd `"$Dest`"; node mcp/launcher.mjs login"
-Write-Host "  3. Antigravity を再起動する(または MCP サーバーを読み込み直す)"
+Write-Host "  1. (まだなら)EDC アカウントにログイン(未登録なら、その画面で登録): cd `"$Dest`"; node mcp/launcher.mjs login"
+Write-Host "  2. Antigravity を再起動する(または MCP サーバーを読み込み直す)"

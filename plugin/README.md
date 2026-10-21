@@ -9,17 +9,17 @@ It empowers creators and game designers to analyze narrative copy, immersive sce
 ## Features
 
 - **Automated Design Tag Extraction**: Analyze experience text into structured `context` (environment perceptions across 5 senses, cognitions, conditions) and `effects` (passive feedback and internal emotional/motivational shifts).
-- **Authentication**: Google login (browser, once), per-client API keys (`edc_sk_…`) or ID tokens of registered service accounts, sent as Bearer credentials to the EDC Web API (Firebase Functions behind Hosting `/v1/**`).
+- **Authentication**: sign in once to the EDC account (OAuth 2.1, browser or device flow; new users register on that screen). The plugin sends the EDC account access token (refreshed automatically) only to the EDC Web API; the sign-in is kept in the OS keychain.
 - **Full Catalog Lifecycle**: Create, retrieve (`GET`), and withdraw/delete (`DELETE`) analyses in the EDC catalog.
 - **Granular Privacy & Storage Levels**: Choose between `none`, `tags_without_sources`, `tags` (default), and `content_and_tags`.
-- **Pre-packaged MCP Server**: Pre-bundled server (`mcp/dist/index.mjs`) started via `mcp/launcher.mjs`, which handles Google login, key setup, config loading and connectivity checks.
+- **Pre-packaged MCP Server**: Pre-bundled server (`mcp/dist/index.mjs`) started via `mcp/launcher.mjs`, which handles the EDC account sign-in and connectivity checks.
 - **Built-in Skill & Specialist Agent**: Includes the `edc-analysis` skill and the `edc-specialist` agent.
 
 ---
 
 ## Quick start
 
-Install with one command (macOS / Linux), then follow the prompts to register and sign in:
+Install with one command (macOS / Linux), then follow the prompt to sign in to the EDC account:
 
 ```
 curl -fsSL https://github.com/Shinh0707/edc-agent-plugin/releases/latest/download/install.sh | sh
@@ -27,13 +27,13 @@ curl -fsSL https://github.com/Shinh0707/edc-agent-plugin/releases/latest/downloa
 
 Windows: `irm https://github.com/Shinh0707/edc-agent-plugin/releases/latest/download/install.ps1 | iex`. It installs to `~/.gemini/config/plugins/entertainment-design-catalog/` (shared by Antigravity IDE / 2.0 / CLI) and, if `agy` is present, also registers it with the Antigravity CLI. Details and manual install: [`SETUP.md`](SETUP.md).
 
-Manually: install Node.js, register yourself with Google at https://entertainment-design-catalog.web.app/register (`node mcp/launcher.mjs register` opens it), then run once with the same account:
+Manually: install Node.js, then run once (new users can register on the sign-in screen; without a browser, add `--device`):
 
 ```
 node mcp/launcher.mjs login
 ```
 
-After that, just use the `edc-analysis` skill. Alternatives: an API key (`node mcp/launcher.mjs setup`) or a registered service account. Priority: `EDC_API_KEY` > service account > Google login.
+After that, just use the `edc-analysis` skill.
 
 ---
 
@@ -46,8 +46,6 @@ The plugin provides the `entertainment-design-catalog` MCP server with 4 tools:
    - Parameters:
      - `text` *(required)*: The story, scenario, or scene text to analyze.
      - `store` *(optional, default: "tags")*: Persistence tier (`"none"`, `"tags_without_sources"`, `"tags"`, `"content_and_tags"`).
-     - `baseUrl` *(optional)*: Override target API endpoint.
-     - `serviceAccountKey` *(optional)*: Override service account key path or JSON.
 
 2. **`edc_get_analysis`**:
    - Retrieves a stored analysis record by ID.

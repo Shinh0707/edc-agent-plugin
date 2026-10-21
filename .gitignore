@@ -6,3 +6,6 @@ plugin/.env
 auth.json
 .DS_Store
 tools.jsonl
+token.json
+token.dpapi
+token.lock
