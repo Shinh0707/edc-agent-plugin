@@ -22,9 +22,9 @@ const decode = (text) => {
 };
 
 /** 子プロセスを動かし、終わりのコードと標準出力を返す。stderr は秘密が混ざらないよう、probe のときだけ読む */
-export function defaultExec(cmd, args, { input, stderr = false, timeoutMs = 15000 } = {}) {
+export function defaultExec(cmd, args, { input, stderr = false, timeoutMs = 15000, env } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ["pipe", "pipe", stderr ? "pipe" : "ignore"], windowsHide: true, timeout: timeoutMs });
+    const child = spawn(cmd, args, { stdio: ["pipe", "pipe", stderr ? "pipe" : "ignore"], windowsHide: true, timeout: timeoutMs, ...(env ? { env } : {}) });
     const out = [];
     const err = [];
     child.stdout.on("data", (c) => out.push(c));
@@ -88,13 +88,21 @@ export function secretServiceStore({ exec = defaultExec, service = SERVICE } = {
   };
 }
 
-const PS = ["-NoProfile", "-NonInteractive", "-Command"];
-// 利用者に結びつく DPAPI(ConvertFrom-SecureString に鍵を渡さない形)。値は標準入力から読む。
-// -Command のとき、PowerShell は渡された標準入力を自分で読んで $input に入れる([Console]::In は空になる)
-const PS_STDIN = "$v=(@($input) -join '').Trim(); if (-not $v) { $v=[Console]::In.ReadToEnd().Trim() }";
-const PS_PROTECT = `${PS_STDIN}; ConvertTo-SecureString -String $v -AsPlainText -Force | ConvertFrom-SecureString`;
-const PS_UNPROTECT = `${PS_STDIN}; $ss=ConvertTo-SecureString -String $v; [Console]::Out.Write([System.Net.NetworkCredential]::new('', $ss).Password)`;
+export const PS_ARGS = ["-NoProfile", "-NonInteractive", "-Command"];
+// 利用者に結びつく DPAPI(ProtectedData、CurrentUser)。値は標準入力から読む。
+// - -Command のとき、PowerShell は渡された標準入力を自分で読んで $input に入れる([Console]::In は空になる)
+// - ConvertTo-SecureString などのコマンドレットは使わない。PowerShell 7 から起動されると PSModulePath を引き継ぎ、
+//   Windows PowerShell 5.1 がそのモジュールを読めないため。.NET の型を直に使う
+const PS_STDIN = "$v=(@($input) -join '').Trim(); if (-not $v) { $v=[Console]::In.ReadToEnd().Trim() }; Add-Type -AssemblyName System.Security";
+export const PS_PROTECT = `${PS_STDIN}; $e=[Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($v), $null, 'CurrentUser'); [Console]::Out.Write([Convert]::ToBase64String($e))`;
+export const PS_UNPROTECT = `${PS_STDIN}; $d=[Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($v), $null, 'CurrentUser'); [Console]::Out.Write([Text.Encoding]::UTF8.GetString($d))`;
 const stripBom = (text) => text.replace(/^\uFEFF/, "").trim();
+/** PowerShell 7 の PSModulePath を Windows PowerShell 5.1 に渡さない */
+const psEnv = () => {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) if (k.toLowerCase() === "psmodulepath") delete env[k];
+  return env;
+};
 
 export function dpapiStore({ exec = defaultExec, file = join(CONFIG_DIR, "token.dpapi") } = {}) {
   return {
@@ -102,14 +110,14 @@ export function dpapiStore({ exec = defaultExec, file = join(CONFIG_DIR, "token.
     async read() {
       const blob = readOrNull(file);
       if (!blob) return null;
-      const r = await exec("powershell.exe", [...PS, PS_UNPROTECT], { input: blob });
+      const r = await exec("powershell.exe", [...PS_ARGS, PS_UNPROTECT], { input: blob, env: psEnv() });
       return r.code === 0 ? decode(stripBom(r.stdout)) : null;
     },
     async write(value) {
-      const r = await exec("powershell.exe", [...PS, PS_PROTECT], { input: encode(value) });
+      const r = await exec("powershell.exe", [...PS_ARGS, PS_PROTECT], { input: encode(value), env: psEnv() });
       const blob = stripBom(r.stdout);
       // 中身は出さない(暗号文でも)。終わりのコードだけ
-      if (r.code !== 0 || !/^[0-9a-fA-F]+$/.test(blob)) throw new Error(`DPAPI で保存できませんでした(PowerShell の終わりのコード ${r.code})`);
+      if (r.code !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(blob)) throw new Error(`DPAPI で保存できませんでした(PowerShell の終わりのコード ${r.code})`);
       writePrivate(file, blob);
     },
     async remove() {

@@ -62,6 +62,17 @@ jobs:
         env:
           EDC_TEST_REAL_STORE: "1"
         run: node --test test/token-store.test.mjs
+      - name: 失敗したときの手がかり(Windows。試しの値で DPAPI の往復を、PowerShell の誤りつきで出す)
+        if: failure() && runner.os == 'Windows'
+        working-directory: plugin/mcp
+        run: >-
+          node -e "const {spawnSync}=require('child_process');
+          import('./token-store.mjs').then(({PS_ARGS,PS_PROTECT,PS_UNPROTECT})=>{
+          const env={...process.env}; for (const k of Object.keys(env)) if (k.toLowerCase()==='psmodulepath') delete env[k];
+          const p=spawnSync('powershell.exe',[...PS_ARGS,PS_PROTECT],{input:'dummy-value',env,encoding:'utf8'});
+          console.log('protect',p.status,JSON.stringify(p.stdout),p.stderr);
+          const u=spawnSync('powershell.exe',[...PS_ARGS,PS_UNPROTECT],{input:p.stdout,env,encoding:'utf8'});
+          console.log('unprotect',u.status,JSON.stringify(u.stdout),u.stderr);})"
 
   # インストーラを実際に動かす(手元に PowerShell がないため、Windows はここでだけ確かめる)
   install:

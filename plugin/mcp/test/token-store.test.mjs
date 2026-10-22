@@ -72,18 +72,20 @@ test("TEST-P09 Secret Service: 値は secret-tool store の標準入力で渡す
 
 test("TEST-P09 DPAPI: PowerShell に標準入力で渡し、暗号文だけをファイルに置く", async () => {
   const file = join(dir, "token.dpapi");
-  const { exec, calls } = fakeExec((cmd, args, { input }) => {
+  const { exec, calls } = fakeExec((cmd, args, opts) => {
+    const { input } = opts;
     assert.equal(cmd, "powershell.exe");
     assert.deepEqual(args.slice(0, 2), ["-NoProfile", "-NonInteractive"]);
     const script = args.at(-1);
-    // 暗号化の代わりに 16 進にする(ConvertFrom-SecureString の出力も 16 進)
-    if (script.includes("ConvertFrom-SecureString")) return { code: 0, stdout: `${Buffer.from(input.trim()).toString("hex")}\r\n` };
-    return { code: 0, stdout: Buffer.from(input.trim(), "hex").toString("utf8") };
+    // 暗号化の代わりに base64 にする(実物も ProtectedData の結果を base64 で出す)。PowerShell 7 の PSModulePath は渡さない
+    assert.ok(!Object.keys(opts.env ?? {}).some((k) => k.toLowerCase() === "psmodulepath"));
+    if (script.includes("::Protect(")) return { code: 0, stdout: `\uFEFF${Buffer.from(input.trim()).toString("base64")}\r\n` };
+    return { code: 0, stdout: Buffer.from(input.trim(), "base64").toString("utf8") };
   });
   const store = dpapiStore({ exec, file });
   assert.equal(await store.read(), null);
   await store.write(VALUE);
-  assert.match(readFileSync(file, "utf8"), /^[0-9a-f]+$/);
+  assert.match(readFileSync(file, "utf8"), /^[A-Za-z0-9+/]+={0,2}$/);
   assert.ok(!readFileSync(file, "utf8").includes("rt-secret"));
   if (isPosix) assert.equal(statSync(file).mode & 0o777, 0o600);
   assert.deepEqual(await store.read(), VALUE);
