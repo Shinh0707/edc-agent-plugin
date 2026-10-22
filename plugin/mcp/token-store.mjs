@@ -89,9 +89,12 @@ export function secretServiceStore({ exec = defaultExec, service = SERVICE } = {
 }
 
 const PS = ["-NoProfile", "-NonInteractive", "-Command"];
-// 利用者に結びつく DPAPI(ConvertFrom-SecureString に鍵を渡さない形)。値は標準入力から読む
-const PS_PROTECT = "$s=[Console]::In.ReadToEnd().Trim(); ConvertTo-SecureString -String $s -AsPlainText -Force | ConvertFrom-SecureString";
-const PS_UNPROTECT = "$b=[Console]::In.ReadToEnd().Trim(); $ss=ConvertTo-SecureString -String $b; [Console]::Out.Write([System.Net.NetworkCredential]::new('', $ss).Password)";
+// 利用者に結びつく DPAPI(ConvertFrom-SecureString に鍵を渡さない形)。値は標準入力から読む。
+// -Command のとき、PowerShell は渡された標準入力を自分で読んで $input に入れる([Console]::In は空になる)
+const PS_STDIN = "$v=(@($input) -join '').Trim(); if (-not $v) { $v=[Console]::In.ReadToEnd().Trim() }";
+const PS_PROTECT = `${PS_STDIN}; ConvertTo-SecureString -String $v -AsPlainText -Force | ConvertFrom-SecureString`;
+const PS_UNPROTECT = `${PS_STDIN}; $ss=ConvertTo-SecureString -String $v; [Console]::Out.Write([System.Net.NetworkCredential]::new('', $ss).Password)`;
+const stripBom = (text) => text.replace(/^\uFEFF/, "").trim();
 
 export function dpapiStore({ exec = defaultExec, file = join(CONFIG_DIR, "token.dpapi") } = {}) {
   return {
@@ -100,12 +103,13 @@ export function dpapiStore({ exec = defaultExec, file = join(CONFIG_DIR, "token.
       const blob = readOrNull(file);
       if (!blob) return null;
       const r = await exec("powershell.exe", [...PS, PS_UNPROTECT], { input: blob });
-      return r.code === 0 ? decode(r.stdout) : null;
+      return r.code === 0 ? decode(stripBom(r.stdout)) : null;
     },
     async write(value) {
       const r = await exec("powershell.exe", [...PS, PS_PROTECT], { input: encode(value) });
-      const blob = r.stdout.trim();
-      if (r.code !== 0 || !/^[0-9a-fA-F]+$/.test(blob)) throw new Error("DPAPI で保存できませんでした");
+      const blob = stripBom(r.stdout);
+      // 中身は出さない(暗号文でも)。終わりのコードだけ
+      if (r.code !== 0 || !/^[0-9a-fA-F]+$/.test(blob)) throw new Error(`DPAPI で保存できませんでした(PowerShell の終わりのコード ${r.code})`);
       writePrivate(file, blob);
     },
     async remove() {
