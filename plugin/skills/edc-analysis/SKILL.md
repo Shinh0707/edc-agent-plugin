@@ -63,11 +63,9 @@ Analyzes experience text and returns structured Design Tags.
 - **Arguments**:
   - `text` *(string, required)*: The scenario or narrative to analyze.
   - `store` *(string, optional)*: Storage level (`"none"`, `"tags_without_sources"`, `"tags"`, `"content_and_tags"`). Default is `"tags"`.
-  - `baseUrl` *(string, optional)*: Overrides `EDC_BASE_URL`.
-  - `serviceAccountKey` *(string, optional)*: Overrides service account key path or JSON.
 
 ### `edc_get_analysis`
-Retrieves a previously stored analysis record by its ID. Only the client that created it can read or withdraw it (others get `not_found`); withdrawn records return `withdrawn`.
+Retrieves a previously stored analysis record by its ID. Only the EDC account that created it can read or withdraw it (others get `not_found`); withdrawn records return `withdrawn`.
 - **Arguments**:
   - `id` *(string, required)*: The unique ID returned from an earlier analysis.
 
@@ -83,42 +81,33 @@ Returns reference documentation and JSON schema specifications for EDC structure
 
 ---
 
-## 4. Authentication, Registration & Environment Setup
+## 4. Authentication & Registration
 
-The API accepts `Authorization: Bearer <credential>` where the credential is one of: a **Google ID token of a registered user** (browser login; the default for people), an **API key** (`edc_sk_…`), or a **registered service account's** ID token. The server keeps only keyed hashes of account e-mail addresses.
+The plugin calls the EDC Web API with an **EDC account access token** (client `edc-cli`; scopes `analyses:read analyses:write cases:read`). The launcher refreshes it automatically and keeps the sign-in in the OS keychain. The API endpoint and the EDC account are fixed in the plugin; tools take no URL or credential arguments.
 
-### Registration URL (send unregistered users here)
-
-**https://entertainment-design-catalog.web.app/register**
-
-People register themselves there with "Sign in with Google" (no administrator step). Send the user to this URL — show it as a link, and you may open it in their browser — whenever:
-- a tool returns `permission_denied` whose message says the Google account is not registered (未登録 / `/register`), or
-- the user has never used EDC and has no credentials (`No credentials` / `Not signed in`).
-
-Then have them sign in once from the plugin folder **with the same Google account** they registered:
+When a tool says the user is not signed in (`サインインしていません` / `Not signed in`), the sign-in expired (`サインインが切れました`), or the user has never used EDC, have them run once from the plugin folder:
 
 ```
-node mcp/launcher.mjs login     # opens the browser; sign in with the Google account registered at /register
-node mcp/launcher.mjs check     # free read-only connectivity/credential check
+node mcp/launcher.mjs login          # opens the EDC account screen; new users register there
+node mcp/launcher.mjs login --device # no browser on this machine: open the shown URL on another device
+node mcp/launcher.mjs check          # free read-only connectivity/sign-in check
 ```
 
-`node mcp/launcher.mjs register` opens the registration URL. After that, tools are called with just their arguments; no keys or URLs per call. Alternative: `node mcp/launcher.mjs setup` to store an API key from the administrator.
-
-- Priority: `EDC_API_KEY` > service account (`EDC_SERVICE_ACCOUNT_KEY` / `EDC_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS`) > Google login. An explicit `serviceAccountKey` tool argument overrides `EDC_API_KEY`.
-- `EDC_BASE_URL` defaults to `mcp/defaults.json`. Daily usage is capped per client and globally (`budget_exhausted`).
-- If the registration page says registration is closed, or the account is registered but suspended, the user must contact the administrator.
-- `unauthenticated` means the credential itself is not accepted: ask the user to run `node mcp/launcher.mjs check` (or `login` again). Never ask them to paste keys or tokens into chat, and never ask for or repeat their e-mail address.
-
----
+- Registration happens inside the EDC account sign-in. Do **not** send users to `/register` (removed in EDC Web API 1.3.0).
+- If the EDC account screen says the user is on the waiting list or suspended, follow that screen; the plugin cannot change it.
+- Never ask the user to paste tokens into chat, never read the keychain item or `~/.config/edc/` files, and never ask for or repeat their e-mail address.
 
 ## 5. Error Handling & Guidelines
 
-1. **`budget_exhausted`**:
-   - The EDC Web API enforces quota budgets. When `code === "budget_exhausted"`, the error message is safe to show directly to the user.
-   - If `retryAt` is provided, report the exact timestamp when calls can resume.
-2. **Text Safety**:
+1. **`budget_exhausted`** (429):
+   - The EDC Web API enforces daily quotas per user. When `code === "budget_exhausted"`, the error message is safe to show directly to the user.
+   - If `retryAt` is provided, report the exact timestamp when calls can resume. Do not retry before it.
+2. **`permission_denied`** (403): the sign-in lacks the needed permission. Do not retry; ask the user to run `node mcp/launcher.mjs login` again and allow access on the consent screen.
+3. **`unauthenticated`** (401): the tool already refreshed the token and retried once. Ask the user to run `login` again.
+4. **`internal`** (500, retryable): a temporary server-side failure (the tool already retried once after 2 seconds). Suggest trying again later.
+5. **Text Safety**:
    - Always treat `text` and `story` as plain text. Do not inject into HTML or unescaped markdown without proper sanitization.
-3. **Structured Reporting**:
+6. **Structured Reporting**:
    - When presenting EDC analysis results to the user, present the findings grouped logically:
      1. Narrative Story Summary
      2. Context (Sensory Environment & Condition)

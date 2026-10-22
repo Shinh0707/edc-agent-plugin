@@ -1,127 +1,45 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { GoogleAuth } from "google-auth-library";
 import {
   EdcClient,
-  EdcApiError,
-  STORE_LEVELS,
   API_ERROR_CODES,
   CLIENT_ERROR_CODES,
 } from "@entertainment-design-catalog/design-tags";
+// 信頼の起点(宛先)はコードの定数。ツールの引数・環境変数では変えない(docs/edc-account/design.md 2 節)
+import { EDC } from "../edc-auth.mjs";
+import { callWithRetry, describeError } from "./apiCall";
 
-/**
- * Resolves authentication credential for EDC API using service account or API key.
- */
-function createCredentialGetter(baseUrl: string, explicitSaKey?: string) {
-  const saKey = explicitSaKey || process.env.EDC_SERVICE_ACCOUNT_KEY || process.env.EDC_SERVICE_ACCOUNT;
-  const saJson = process.env.EDC_SERVICE_ACCOUNT_JSON;
-  const gAppCreds = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  const apiKey = process.env.EDC_API_KEY;
+/** launcher.mjs が置く、EDC アカウントのトークンの取り出し口 */
+type EdcAuth = { getAccessToken(options?: { force?: boolean }): Promise<string> };
 
-  if (apiKey && !explicitSaKey) {
-    return () => apiKey;
-  }
-
-  // Google login: the launcher supplies a function returning a fresh Google ID token (mcp/launcher.mjs)
-  if (!apiKey && !saKey && !saJson && !gAppCreds && (globalThis as any).__edcCredential) {
-    return (globalThis as any).__edcCredential as () => Promise<string>;
-  }
-
-  const authOptions: any = {};
-  if (saKey) {
-    const trimmed = saKey.trim();
-    if (trimmed.startsWith("{")) {
-      try {
-        authOptions.credentials = JSON.parse(trimmed);
-      } catch (e) {
-        throw new Error(`Failed to parse Service Account JSON in EDC_SERVICE_ACCOUNT_KEY: ${e}`);
-      }
-    } else {
-      authOptions.keyFilename = trimmed;
-    }
-  } else if (saJson) {
-    try {
-      authOptions.credentials = JSON.parse(saJson);
-    } catch (e) {
-      throw new Error(`Failed to parse Service Account JSON in EDC_SERVICE_ACCOUNT_JSON: ${e}`);
-    }
-  } else if (gAppCreds) {
-    authOptions.keyFilename = gAppCreds;
-  }
-
-  const auth = new GoogleAuth(authOptions);
-
-  return async (): Promise<string> => {
-    // 1. Try ID token (preferred for Cloud Run / Identity-Aware Proxy)
-    try {
-      const client = await auth.getIdTokenClient(baseUrl);
-      const headers = await client.getRequestHeaders();
-      const authHeader = headers["Authorization"] || headers["authorization"] || "";
-      const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-      if (token) return token;
-    } catch (idErr) {
-      // 2. Fallback to access token
-      try {
-        const token = await auth.getAccessToken();
-        if (token) return token.trim();
-      } catch (accessErr) {
-        throw new Error(
-          `Service account authentication failed. Ensure EDC_SERVICE_ACCOUNT_KEY or GOOGLE_APPLICATION_CREDENTIALS is set and valid.\nDetails: ${idErr}; access-token fallback: ${accessErr}`
-        );
-      }
-    }
-    throw new Error("Failed to produce authentication token from service account.");
-  };
+function edcAuth(): EdcAuth {
+  const auth = (globalThis as { __edcAuth?: EdcAuth }).__edcAuth;
+  if (!auth) throw new Error("Start the server with: node mcp/launcher.mjs");
+  return auth;
 }
 
 /**
- * Factory to build an EdcClient instance.
+ * EDC Web API を呼ぶ。トークンは EDC.apiBase にだけ送る(EdcClient はリダイレクトを追わない)。
+ * 401・500 internal のやり直しは callWithRetry
  */
-function getEdcClient(options?: { baseUrl?: string; serviceAccountKey?: string }) {
-  const baseUrl = options?.baseUrl || process.env.EDC_BASE_URL;
-  if (!baseUrl) {
-    throw new Error(
-      "EDC API Base URL is missing. Set the EDC_BASE_URL environment variable or supply baseUrl parameter."
-    );
-  }
-
-  const credential = createCredentialGetter(baseUrl, options?.serviceAccountKey);
-
-  return new EdcClient({
-    baseUrl,
-    credential,
-  });
+async function callEdc<T>(run: (client: EdcClient) => Promise<T>): Promise<T> {
+  const auth = edcAuth();
+  const client = new EdcClient({ baseUrl: EDC.apiBase, credential: () => auth.getAccessToken() });
+  return callWithRetry(() => run(client), { refresh: () => auth.getAccessToken({ force: true }) });
 }
 
 function formatError(error: unknown) {
-  if (error instanceof EdcApiError) {
-    return {
-      isError: true,
-      content: [
-        {
-          type: "text" as const,
-          text: `[EDC API Error] Code: ${error.code} (Status: ${error.status ?? "N/A"})\nMessage: ${error.message}${
-            error.retryAt ? `\nRetry available at: ${error.retryAt}` : ""
-          }${error.retryable ? "\nThis error is retryable." : ""}`,
-        },
-      ],
-    };
-  }
   return {
     isError: true,
-    content: [
-      {
-        type: "text" as const,
-        text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-      },
-    ],
+    content: [{ type: "text" as const, text: describeError(error) }],
   };
 }
 
 const server = new McpServer({
   name: "entertainment-design-catalog",
-  version: "1.0.0",
+  version: "2.0.0",
 });
 
 // Tool: edc_analyze_text
@@ -137,22 +55,12 @@ server.tool(
       .describe(
         "Storage level in EDC catalog: 'none' (do not store), 'tags_without_sources' (store tags without quoting original text), 'tags' (store design tags, default), 'content_and_tags' (store both full text and tags)."
       ),
-    baseUrl: z
-      .string()
-      .optional()
-      .describe("Optional override for EDC Web API Base URL (defaults to EDC_BASE_URL environment variable)."),
-    serviceAccountKey: z
-      .string()
-      .optional()
-      .describe("Optional override for Service Account key file path or JSON string."),
   },
-  async ({ text, store, baseUrl, serviceAccountKey }) => {
+  async ({ text, store }) => {
     try {
-      const client = getEdcClient({ baseUrl, serviceAccountKey });
-      const result = await client.analyses.create({
-        text,
-        store: store as any,
-      });
+      // やり直しでも同じ冪等キー(二重に数えない)
+      const idempotencyKey = randomUUID();
+      const result = await callEdc((client) => client.analyses.create({ text, store: store as any }, { idempotencyKey }));
 
       return {
         content: [
@@ -174,19 +82,10 @@ server.tool(
   "Retrieve an existing stored analysis from the Entertainment Design Catalog (EDC) by ID.",
   {
     id: z.string().describe("The ID of the analysis to retrieve."),
-    baseUrl: z
-      .string()
-      .optional()
-      .describe("Optional override for EDC Web API Base URL."),
-    serviceAccountKey: z
-      .string()
-      .optional()
-      .describe("Optional override for Service Account key file path or JSON string."),
   },
-  async ({ id, baseUrl, serviceAccountKey }) => {
+  async ({ id }) => {
     try {
-      const client = getEdcClient({ baseUrl, serviceAccountKey });
-      const result = await client.analyses.get(id);
+      const result = await callEdc((client) => client.analyses.get(id));
 
       return {
         content: [
@@ -208,19 +107,10 @@ server.tool(
   "Delete (withdraw) a stored analysis from the Entertainment Design Catalog (EDC) by ID.",
   {
     id: z.string().describe("The ID of the analysis to delete/withdraw."),
-    baseUrl: z
-      .string()
-      .optional()
-      .describe("Optional override for EDC Web API Base URL."),
-    serviceAccountKey: z
-      .string()
-      .optional()
-      .describe("Optional override for Service Account key file path or JSON string."),
   },
-  async ({ id, baseUrl, serviceAccountKey }) => {
+  async ({ id }) => {
     try {
-      const client = getEdcClient({ baseUrl, serviceAccountKey });
-      await client.analyses.delete(id);
+      await callEdc((client) => client.analyses.delete(id));
 
       return {
         content: [

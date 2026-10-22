@@ -15,12 +15,14 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: plugin/mcp/package-lock.json
-      - name: MCP サーバーをビルド
+      - name: MCP サーバーをビルドし、テストする
         working-directory: plugin/mcp
-        run: npm ci && npm run build
+        run: npm ci && npm test
       - name: 構文の確認
         run: |
           node --check plugin/mcp/launcher.mjs
+          node --check plugin/mcp/edc-auth.mjs
+          node --check plugin/mcp/token-store.mjs
           node --check plugin/mcp/dist/index.mjs
           sh -n install/install.sh
       - name: MCP サーバーが起動し、4つのツールを出す
@@ -32,16 +34,45 @@ jobs:
             '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
             | (cat; sleep 5) | timeout 15 node mcp/launcher.mjs > tools.jsonl || true
           node -e 'const l=require("fs").readFileSync("tools.jsonl","utf8").trim().split("\n").map(JSON.parse).find(m=>m.id===2); const n=l.result.tools.map(t=>t.name).sort(); console.log(n); if(n.length!==4) process.exit(1)'
-      - name: zip を作れる(シークレットなし)
-        run: node scripts/package.mjs --allow-missing-secret
+      - name: zip を作れる
+        run: node scripts/package.mjs
       - name: zip に秘密のファイルが入っていない
         run: |
           unzip -l dist/entertainment-design-catalog.zip
-          ! unzip -l dist/entertainment-design-catalog.zip | grep -E '(^|/)(\.env|auth\.json)$|node_modules/'
+          ! unzip -l dist/entertainment-design-catalog.zip | grep -E '(^|/)(\.env|auth\.json|token\.json)$|node_modules/|/test/'
       - uses: actions/upload-artifact@v4
         with:
           name: zip
           path: dist/
+
+  # 保存先(実物の鍵束)の往復を各 OS で確かめる(macOS: キーチェーン、Windows: DPAPI、Linux: secret-tool がなければファイル)
+  store:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: 保存先の往復
+        working-directory: plugin/mcp
+        env:
+          EDC_TEST_REAL_STORE: "1"
+        run: node --test test/token-store.test.mjs
+      - name: 失敗したときの手がかり(Windows。試しの値で DPAPI の往復を、PowerShell の誤りつきで出す)
+        if: failure() && runner.os == 'Windows'
+        working-directory: plugin/mcp
+        run: >-
+          node -e "const {spawnSync}=require('child_process');
+          import('./token-store.mjs').then(({PS_ARGS,PS_PROTECT,PS_UNPROTECT})=>{
+          const env={...process.env}; for (const k of Object.keys(env)) if (k.toLowerCase()==='psmodulepath') delete env[k];
+          const p=spawnSync('powershell.exe',[...PS_ARGS,PS_PROTECT],{input:'dummy-value',env,encoding:'utf8'});
+          console.log('protect',p.status,JSON.stringify(p.stdout),p.stderr);
+          const u=spawnSync('powershell.exe',[...PS_ARGS,PS_UNPROTECT],{input:p.stdout,env,encoding:'utf8'});
+          console.log('unprotect',u.status,JSON.stringify(u.stdout),u.stderr);})"
 
   # インストーラを実際に動かす(手元に PowerShell がないため、Windows はここでだけ確かめる)
   install:
@@ -65,7 +96,7 @@ jobs:
         run: |
           (cd rel && python3 -m http.server 18080 >/dev/null 2>&1 &) || (cd rel && python -m http.server 18080 >/dev/null 2>&1 &)
           sleep 2
-      - name: install.sh(新規 → 上書き。.env は引き継ぐ)
+      - name: install.sh(新規 → 上書き)
         if: runner.os != 'Windows'
         shell: bash
         env:
@@ -73,12 +104,10 @@ jobs:
         run: |
           sh install/install.sh --no-login </dev/null
           D="$HOME/.gemini/config/plugins/entertainment-design-catalog"
-          echo "MY=1" > "$D/.env"
           sh install/install.sh --no-login </dev/null
-          test "$(cat "$D/.env")" = "MY=1"
           test -z "$(find "$D" -type f -size 0)"
-          cd "$D" && node mcp/launcher.mjs status
-      - name: install.ps1(新規 → 上書き。.env は引き継ぐ)
+          cd "$D" && node mcp/launcher.mjs status | grep -q '"signedIn": false'
+      - name: install.ps1(新規 → 上書き)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
@@ -87,8 +116,7 @@ jobs:
         run: |
           ./install/install.ps1
           $d = Join-Path $HOME ".gemini\config\plugins\entertainment-design-catalog"
-          Set-Content "$d\.env" "MY=1"
           ./install/install.ps1
-          if ((Get-Content "$d\.env" -Raw).Trim() -ne "MY=1") { throw ".env が引き継がれていない" }
           if (Get-ChildItem -Recurse -File $d | Where-Object Length -eq 0) { throw "空のファイルがある" }
-          Push-Location $d; node mcp/launcher.mjs status; Pop-Location
+          Push-Location $d; $s = node mcp/launcher.mjs status | Out-String; Pop-Location
+          if ($s -notmatch '"signedIn": false') { throw "status が想定と違う: $s" }

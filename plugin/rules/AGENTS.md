@@ -3,9 +3,9 @@
 When working with entertainment experiences, game design documents, visitor attractions, or media narratives using EDC:
 
 1. **Security & Credential Protection**:
-   - Never log, print, or leak the contents of `EDC_API_KEY`, `EDC_SERVICE_ACCOUNT_KEY`, `.env`, `~/.config/edc/auth.json`, Google ID/refresh tokens, service account JSON, or API tokens in chat responses, artifacts, or transcripts.
-   - If the Google account is not registered (`permission_denied` mentioning `/register`) or the user has no credentials yet, send them to https://entertainment-design-catalog.web.app/register to register with Google, then `node mcp/launcher.mjs login` with the same account.
-   - If authentication fails otherwise, guide the user to run `node mcp/launcher.mjs check` (or `login` to sign in again) and verify `EDC_BASE_URL`, without asking them to paste secret credentials into public chat.
+   - Never read, log, print, or leak EDC account access/refresh tokens, the OS keychain item `edc-agent-plugin`, `~/.config/edc/token.json`, `token.dpapi` or `auth.json` in chat responses, artifacts, or transcripts.
+   - If the user is not signed in or not registered, have them run `node mcp/launcher.mjs login` in the plugin folder (new users register on that EDC account screen; `login --device` without a browser). Do not send them to `/register`.
+   - If authentication fails otherwise, guide the user to run `node mcp/launcher.mjs check` (or `login` to sign in again), without asking them to paste tokens into chat.
 
 2. **EDC Taxonomy Precision**:
    - Always map experiential elements to their exact EDC constructs:
